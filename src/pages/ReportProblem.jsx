@@ -36,6 +36,8 @@ function ReportProblem() {
   const [imagePreview, setImagePreview] = useState("")
 
   const [loading, setLoading] = useState(false)
+  const [analyzingCategory, setAnalyzingCategory] = useState(false)
+  const [categoryAnalyzed, setCategoryAnalyzed] = useState(false)
   const [message, setMessage] = useState("")
 
   function handleImageChange(event) {
@@ -75,6 +77,50 @@ function ReportProblem() {
 
     setImage(null)
     setImagePreview("")
+  }
+
+  async function handleAnalyzeCategory() {
+  setMessage("")
+
+  if (!title || !description) {
+    setMessage("Please enter the problem title and description first.")
+    return
+  }
+
+  setAnalyzingCategory(true)
+  setCategoryAnalyzed(false)
+
+  try {
+    const { data: aiData, error: aiError } =
+      await supabase.functions.invoke("analyze-problem", {
+        body: {
+          title,
+          description,
+          district,
+          address,
+        },
+      })
+
+    if (aiError) {
+      throw aiError
+    }
+
+    const aiCategory = aiData?.analysis?.category
+
+    if (!aiCategory) {
+      throw new Error("AI could not determine a category.")
+    }
+
+    setCategory(aiCategory)
+    setCategoryAnalyzed(true)
+  } catch (error) {
+    console.error("AI category analysis error:", error)
+    setMessage(
+      error.message || "Unable to analyze the problem category."
+    )
+  } finally {
+    setAnalyzingCategory(false)
+    }
   }
 
   async function handleSubmit(event) {
@@ -291,7 +337,10 @@ function ReportProblem() {
 
               <select
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
+                onChange={(e) => {
+                  setCategory(e.target.value)
+                  setCategoryAnalyzed(false)
+                }}
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 bg-white outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
               >
                 <option value="">
@@ -305,8 +354,27 @@ function ReportProblem() {
                 ))}
               </select>
 
-              <p className="mt-1.5 text-xs text-slate-500">
-                AI will later help verify and categorize your report.
+              <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleAnalyzeCategory}
+                  disabled={analyzingCategory || !title || !description}
+                  className="rounded-xl bg-green-700 px-5 py-3 text-sm font-semibold text-white hover:bg-green-800 transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {analyzingCategory ? "Analyzing..." : "Analyze Category"}
+                </button>
+
+                {categoryAnalyzed && (
+                  <p className="text-sm font-medium text-green-700">
+                    ✓ AI suggested:{" "}
+                    {categories.find((item) => item.value === category)?.label ||
+                      category}
+                  </p>
+                )}
+              </div>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Let AI analyze your problem and suggest the most suitable category.
               </p>
             </div>
 
