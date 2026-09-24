@@ -200,7 +200,12 @@ function ReportProblem() {
         throw problemError
       }
 
+      // --------------------------------------------------
       // Ask AI to analyze the problem
+      // --------------------------------------------------
+
+      let finalCategory = category || null
+
       const { data: aiData, error: aiError } =
         await supabase.functions.invoke("analyze-problem", {
           body: {
@@ -221,6 +226,8 @@ function ReportProblem() {
         // If citizen did not select a category,
         // use the category suggested by AI.
         if (!category && aiCategory) {
+          finalCategory = aiCategory
+
           const { error: categoryUpdateError } = await supabase
             .from("problems")
             .update({
@@ -235,6 +242,34 @@ function ReportProblem() {
             )
           }
         }
+      }
+
+      // --------------------------------------------------
+      // Ask AI to check for duplicate problems
+      // --------------------------------------------------
+
+      const { data: duplicateData, error: duplicateError } =
+        await supabase.functions.invoke("find-duplicates", {
+          body: {
+            problemId: problem.id,
+            title,
+            description,
+            district,
+            category: finalCategory,
+          },
+        })
+
+      if (duplicateError) {
+        // Duplicate analysis should not cancel a successful report.
+        console.error(
+          "Duplicate detection error:",
+          duplicateError
+        )
+      } else {
+        console.log(
+          "Duplicate detection result:",
+          duplicateData
+        )
       }
 
       // Success

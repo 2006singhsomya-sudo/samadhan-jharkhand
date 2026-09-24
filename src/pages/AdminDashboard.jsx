@@ -166,6 +166,29 @@ function AdminDashboard() {
     return "bg-gray-100 text-gray-700"
   }
 
+  function getDuplicateCandidates(problem) {
+    if (!problem?.ai_duplicate_candidates) {
+      return []
+    }
+
+    if (Array.isArray(problem.ai_duplicate_candidates)) {
+      return problem.ai_duplicate_candidates
+    }
+
+    return []
+  }
+
+  function formatSimilarity(similarity) {
+    if (similarity === null || similarity === undefined) {
+      return null
+    }
+
+    const percentage =
+      similarity <= 1 ? similarity * 100 : similarity
+
+    return Math.round(percentage)
+  }
+
   function getSolutionStatusStyle(status) {
     if (status === "ACCEPTED") {
       return "bg-green-100 text-green-700"
@@ -565,6 +588,52 @@ function AdminDashboard() {
                               </span>
 
                             </div>
+
+                            {/* AI Duplicate Information */}
+                            {getDuplicateCandidates(problem).length > 0 && (
+                              <div className="mt-4 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-bold text-orange-700">
+                                    ⚠️ Possible Duplicates
+                                  </span>
+
+                                  <span className="text-xs text-slate-500">
+                                    AI recommendation
+                                  </span>
+                                </div>
+
+                                {getDuplicateCandidates(problem).map((candidate) => {
+                                  const matchedProblem = problems.find(
+                                    (item) => item.id === candidate.problem_id
+                                  )
+
+                                  return (
+                                    <div
+                                      key={candidate.problem_id}
+                                      className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5"
+                                    >
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-sm font-semibold text-slate-800">
+                                          {matchedProblem?.title || "Existing problem"}
+                                        </span>
+
+                                        {formatSimilarity(candidate.similarity) !== null && (
+                                          <span className="rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-700">
+                                            {formatSimilarity(candidate.similarity)}% similarity
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {candidate.reason && (
+                                        <p className="mt-1 text-xs text-orange-800">
+                                          {candidate.reason}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
 
                           </div>
 
