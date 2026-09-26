@@ -14,6 +14,66 @@ const responseHeaders = {
   "Content-Type": "application/json",
 };
 
+async function callGemini(model, input, responseSchema) {
+  const maxRetries = 3
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/interactions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          model,
+          input,
+          store: false,
+          response_format: [
+            {
+              type: "text",
+              mime_type: "application/json",
+              schema: responseSchema,
+            },
+          ],
+        }),
+      },
+    )
+
+    const rawResponse = await response.text()
+
+    console.log(
+      `${model} HTTP status:`,
+      response.status,
+      response.statusText,
+    )
+
+    console.log(
+      `${model} response body:`,
+      rawResponse,
+    )
+
+    if (response.status === 503 && attempt < maxRetries) {
+      const delay = 1000 * Math.pow(2, attempt)
+
+      console.log(
+        `${model} returned 503. Retrying in ${delay}ms...`,
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      continue
+    }
+
+    return {
+      response,
+      rawResponse,
+    }
+  }
+
+  throw new Error(`${model} failed after retries`)
+}
+
 Deno.serve(async (req) => {
   // Browser CORS preflight
   if (req.method === "OPTIONS") {
@@ -240,35 +300,31 @@ Confidence must be a number between 0 and 1.
       ],
     };
 
-    console.log("Calling Gemini...");
+    console.log("Calling Gemini with primary model...")
 
-    const geminiResponse = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/interactions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          model: "gemini-3.6-flash",
-          input,
-          store: false,
-          response_format: [
-            {
-              type: "text",
-              mime_type: "application/json",
-              schema: responseSchema,
-            },
-          ],
-        }),
-      },
-    );
+    let geminiResult = await callGemini(
+      "gemini-3.6-flash",
+      input,
+      responseSchema,
+    )
 
-    // IMPORTANT:
-    // Read the response as text first.
-    // This prevents "Unexpected end of JSON input".
-    const geminiRawResponse = await geminiResponse.text();
+    let geminiResponse = geminiResult.response
+    let geminiRawResponse = geminiResult.rawResponse
+
+    if (geminiResponse.status === 503) {
+      console.log(
+        "Primary model unavailable. Trying fallback model...",
+      )
+
+      geminiResult = await callGemini(
+        "gemini-3.5-flash-lite",
+        input,
+        responseSchema,
+      )
+
+      geminiResponse = geminiResult.response
+      geminiRawResponse = geminiResult.rawResponse
+    }
 
     console.log(
       "Gemini HTTP status:",
