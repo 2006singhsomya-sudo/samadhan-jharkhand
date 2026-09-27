@@ -38,6 +38,8 @@ function ReportProblem() {
   const [loading, setLoading] = useState(false)
   const [analyzingCategory, setAnalyzingCategory] = useState(false)
   const [categoryAnalyzed, setCategoryAnalyzed] = useState(false)
+  const [aiAnalysisResult, setAiAnalysisResult] = useState(null)
+  const [lastDuplicateCheckAt, setLastDuplicateCheckAt] = useState(0)
   const [message, setMessage] = useState("")
 
   function handleImageChange(event) {
@@ -111,6 +113,7 @@ function ReportProblem() {
       throw new Error("AI could not determine a category.")
     }
 
+    setAiAnalysisResult(aiData)
     setCategory(aiCategory)
     setCategoryAnalyzed(true)
   } catch (error) {
@@ -206,41 +209,21 @@ function ReportProblem() {
 
       let finalCategory = category || null
 
-      const { data: aiData, error: aiError } =
-        await supabase.functions.invoke("analyze-problem", {
-          body: {
-            title,
-            description,
-            district,
-            address,
-          },
-        })
+      if (!category && aiAnalysisResult?.analysis?.category) {
+        finalCategory = aiAnalysisResult.analysis.category
 
-      if (aiError) {
-        console.error("AI analysis error:", aiError)
-      } else {
-        console.log("AI analysis result:", aiData)
+        const { error: categoryUpdateError } = await supabase
+          .from("problems")
+          .update({
+            category: finalCategory,
+          })
+          .eq("id", problem.id)
 
-        const aiCategory = aiData?.analysis?.category
-
-        // If citizen did not select a category,
-        // use the category suggested by AI.
-        if (!category && aiCategory) {
-          finalCategory = aiCategory
-
-          const { error: categoryUpdateError } = await supabase
-            .from("problems")
-            .update({
-              category: aiCategory,
-            })
-            .eq("id", problem.id)
-
-          if (categoryUpdateError) {
-            console.error(
-              "Category update error:",
-              categoryUpdateError
-            )
-          }
+        if (categoryUpdateError) {
+          console.error(
+            "Category update error:",
+            categoryUpdateError
+          )
         }
       }
 
@@ -248,30 +231,40 @@ function ReportProblem() {
       // Ask AI to check for duplicate problems
       // --------------------------------------------------
 
-      const { data: duplicateData, error: duplicateError } =
-        await supabase.functions.invoke("find-duplicates", {
-          body: {
-            problemId: problem.id,
-            title,
-            description,
-            district,
-            category: finalCategory,
-          },
-        })
+      const now = Date.now()
+      const minimumDelay = 15000
 
-      if (duplicateError) {
-        // Duplicate analysis should not cancel a successful report.
-        console.error(
-          "Duplicate detection error:",
-          duplicateError
-        )
+      if (now - lastDuplicateCheckAt >= minimumDelay) {
+        setLastDuplicateCheckAt(now)
+
+        const { data: duplicateData, error: duplicateError } =
+          await supabase.functions.invoke("find-duplicates", {
+            body: {
+              problemId: problem.id,
+              title,
+              description,
+              district,
+              category: finalCategory,
+            },
+          })
+
+        if (duplicateError) {
+          // Duplicate analysis should not cancel a successful report.
+          console.error(
+            "Duplicate detection error:",
+            duplicateError
+          )
+        } else {
+          console.log(
+            "Duplicate detection result:",
+            duplicateData
+          )
+        }
       } else {
         console.log(
-          "Duplicate detection result:",
-          duplicateData
+          "Duplicate detection skipped because the 15-second cooldown is active."
         )
       }
-
       // Success
       setMessage("Problem reported successfully!")
 

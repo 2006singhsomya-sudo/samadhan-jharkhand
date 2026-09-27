@@ -15,6 +15,69 @@ const responseHeaders = {
   "Content-Type": "application/json",
 };
 
+async function callGemini(model, input, responseSchema) {
+  const maxRetries = 3
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/interactions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          model,
+          input,
+          store: false,
+          response_format: [
+            {
+              type: "text",
+              mime_type: "application/json",
+              schema: responseSchema,
+            },
+          ],
+        }),
+      },
+    )
+
+    const rawResponse = await response.text()
+
+    console.log(
+      `${model} HTTP status:`,
+      response.status,
+      response.statusText,
+    )
+
+    console.log(
+      `${model} response body:`,
+      rawResponse,
+    )
+
+    if (response.status === 503 && attempt < maxRetries) {
+      const delay = 1000 * Math.pow(2, attempt)
+
+      console.log(
+        `${model} returned 503. Retrying in ${delay}ms...`,
+      )
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, delay),
+      )
+
+      continue
+    }
+
+    return {
+      response,
+      rawResponse,
+    }
+  }
+
+  throw new Error(`${model} failed after retries`)
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -303,38 +366,44 @@ Return ONLY valid JSON.
 
     console.log(
       `Checking duplicates for problem ${problemId}`,
-    );
+    )
 
-    const geminiResponse = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/interactions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": GEMINI_API_KEY,
+    let geminiResult = await callGemini(
+      "gemini-3.5-flash-lite",
+      [
+        {
+          type: "text",
+          text: prompt,
         },
-        body: JSON.stringify({
-          model: "gemini-3.6-flash",
-          input: [
-            {
-              type: "text",
-              text: prompt,
-            },
-          ],
-          store: false,
-          response_format: [
-            {
-              type: "text",
-              mime_type: "application/json",
-              schema: responseSchema,
-            },
-          ],
-        }),
-      },
-    );
+      ],
+      responseSchema,
+    )
 
-    const geminiRawResponse =
-      await geminiResponse.text();
+    let geminiResponse = geminiResult.response
+    let geminiRawResponse = geminiResult.rawResponse
+
+    if (
+      geminiResponse.status === 429 ||
+      geminiResponse.status === 503
+    ) {
+      console.log(
+        "Primary model unavailable. Trying fallback model...",
+      )
+
+      geminiResult = await callGemini(
+        "gemini-3.7-flash",
+        [
+          {
+            type: "text",
+            text: prompt,
+          },
+        ],
+        responseSchema,
+      )
+
+      geminiResponse = geminiResult.response
+      geminiRawResponse = geminiResult.rawResponse
+    }
 
     console.log(
       "Gemini duplicate HTTP status:",
